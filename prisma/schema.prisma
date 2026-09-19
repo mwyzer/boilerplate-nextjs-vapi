@@ -1,0 +1,47 @@
+// Simple Voice Booking - Prisma schema
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+model Resource {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String   @default("MEETING_ROOM")
+  capacity  Int      @default(4)
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bookings  Booking[]
+}
+
+model Booking {
+  id         Int           @id @default(autoincrement())
+  bookingId  String        @unique
+  name       String
+  resourceId Int
+  resource   Resource      @relation(fields: [resourceId], references: [id])
+  date       String
+  startTime  String
+  duration   Int
+  start      DateTime
+  end        DateTime
+  status     BookingStatus @default(PENDING)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([resourceId, status])
+  @@index([resourceId, start, end])
+}

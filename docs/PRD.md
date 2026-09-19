@@ -303,17 +303,7 @@ System harus menyediakan landing page dengan:
 * "Book with AI" button
 * "View Bookings" button
 
-Example:
-
-```text
-Simple Booking
-
-Book your meeting room using AI voice.
-
-[ Book with AI ]
-
-[ View Bookings ]
-```
+Contoh tampilan: lihat section 14.1.
 
 ---
 
@@ -399,37 +389,15 @@ AI harus dapat memanggil tool:
 check_availability
 ```
 
-Input:
+Kontrak input/output lengkap: lihat section 11 (Tool 1).
+
+Jika slot tersedia:
 
 ```json
-{
-  "date": "2026-09-20",
-  "startTime": "10:00",
-  "duration": 2
-}
+{ "available": true }
 ```
 
-Output ketika tersedia:
-
-```json
-{
-  "available": true
-}
-```
-
-Output ketika tidak tersedia:
-
-```json
-{
-  "available": false,
-  "alternativeTimes": [
-    "13:00",
-    "15:00"
-  ]
-}
-```
-
-Jika jadwal tidak tersedia, AI harus menawarkan alternatif kepada user.
+Jika slot tidak tersedia, AI menerima `alternativeTimes` dan harus menawarkan alternatif kepada user.
 
 ---
 
@@ -460,18 +428,9 @@ AI memanggil:
 create_booking
 ```
 
-Input:
+Kontrak input/output lengkap: lihat section 11 (Tool 2).
 
-```json
-{
-  "name": "Muhammad",
-  "date": "2026-09-20",
-  "startTime": "10:00",
-  "duration": 2
-}
-```
-
-Output:
+Output utama:
 
 ```json
 {
@@ -674,6 +633,8 @@ resourceId
 date
 startTime
 duration
+start
+end
 status
 createdAt
 updatedAt
@@ -686,6 +647,12 @@ PENDING
 CONFIRMED
 CANCELLED
 ```
+
+Catatan implementasi:
+
+* `duration` disimpan dalam **menit** (Int); API menerima nilai dalam **jam**.
+* Field `start` dan `end` adalah hasil komputasi dari `date` + `startTime` + `duration`.
+* Booking langsung dibuat berstatus `CONFIRMED`. Status `PENDING` dicadangkan untuk alur pre-confirmation di masa depan.
 
 ---
 
@@ -713,9 +680,28 @@ Meeting Room A
 
 Architecture harus tetap memungkinkan penambahan resource di masa depan.
 
+Index untuk mempercepat pencarian konflik:
+
+```text
+Booking @@index([resourceId, status])
+Booking @@index([resourceId, start, end])
+```
+
 ---
 
 # 13. API Specification
+
+Semua response error menggunakan bentuk:
+
+```json
+{ "error": { "code": "ERROR_CODE", "message": "Deskripsi" } }
+```
+
+Kode error utama:
+
+* HTTP 400: `INVALID_PAYLOAD`, `MISSING_NAME`, `INVALID_DATE`, `INVALID_TIME`, `INVALID_DURATION`, `PAST_BOOKING`, `SLOT_BOOKED`, `NO_RESOURCE`, `INVALID_STATUS`
+* HTTP 404: `NOT_FOUND`
+* HTTP 500: `INTERNAL_ERROR`
 
 ## Create Booking
 
@@ -734,6 +720,8 @@ Request:
 }
 ```
 
+Response: **201** `{ "booking": { "bookingId": "...", "status": "CONFIRMED", ... } }`
+
 ---
 
 ## Get Bookings
@@ -742,6 +730,8 @@ Request:
 GET /api/bookings
 ```
 
+Response: **200** `{ "bookings": [...] }`, urut descending berdasarkan waktu mulai.
+
 ---
 
 ## Get Booking
@@ -749,6 +739,10 @@ GET /api/bookings
 ```http
 GET /api/bookings/:id
 ```
+
+`:id` dapat berupa numeric id atau `bookingId` (mis. `BK-000001`).
+
+Response: **200** `{ "booking": ... }`
 
 ---
 
@@ -768,6 +762,11 @@ Request:
 }
 ```
 
+Response:
+
+* Tersedia **200**: `{ "available": true, "resourceName": "...", "endTime": "HH:mm", ... }`
+* Tidak tersedia **200**: `{ "available": false, "conflictCount": 1, "alternativeTimes": ["13:00", "15:00"] }` (hingga 3 alternatif)
+
 ---
 
 ## Cancel Booking
@@ -783,6 +782,10 @@ Request:
   "status": "CANCELLED"
 }
 ```
+
+Hanya menerima status `CANCELLED`. Operasi bersifat idempotent — cancel berulang tidak menghasilkan error.
+
+Response: **200** `{ "booking": { ... } }`
 
 ---
 
@@ -807,7 +810,7 @@ Request:
 
 ---
 
-# 15. Voice Booking UI
+## 14.2 Voice Booking UI
 
 ```text
 -------------------------------------
@@ -836,7 +839,7 @@ UI harus memberikan visual feedback ketika:
 
 ---
 
-# 16. Booking List UI
+## 14.3 Booking List UI
 
 ```text
 My Bookings
@@ -859,7 +862,7 @@ CONFIRMED
 
 ---
 
-# 17. Manual Booking Fallback
+## 14.4 Manual Booking Fallback
 
 Jika Voice AI tidak tersedia, user harus tetap dapat melakukan booking melalui form.
 
@@ -887,7 +890,7 @@ Fallback ini memastikan aplikasi tetap dapat digunakan ketika microphone atau Va
 
 ---
 
-# 18. Technology Stack
+# 15. Technology Stack
 
 ## Frontend
 
@@ -918,7 +921,7 @@ Fallback ini memastikan aplikasi tetap dapat digunakan ketika microphone atau Va
 
 ---
 
-# 19. Environment Variables
+# 16. Environment Variables
 
 ```env
 NEXT_PUBLIC_VAPI_PUBLIC_KEY=your_vapi_public_key
@@ -936,7 +939,7 @@ Jangan commit secret ke Git repository.
 
 ---
 
-# 20. Security Requirements
+# 17. Security Requirements
 
 System harus:
 
@@ -951,7 +954,7 @@ System harus:
 
 ---
 
-# 21. Booking Rules
+# 18. Booking Rules
 
 MVP menggunakan rules berikut:
 
@@ -992,9 +995,21 @@ Duration maksimum:
 
 Booking hanya dapat dibuat setelah user memberikan confirmation.
 
+### Rule 7
+
+Duration harus kelipatan:
+
+```text
+30 minutes
+```
+
+### Rule 8
+
+Booking dengan status `CANCELLED` tidak dianggap aktif dan tidak menimbulkan konflik.
+
 ---
 
-# 22. Error Handling
+# 19. Error Handling
 
 ## Vapi unavailable
 
@@ -1036,7 +1051,7 @@ Please try again.
 
 ---
 
-# 23. Non-Functional Requirements
+# 20. Non-Functional Requirements
 
 ## Performance
 
@@ -1060,7 +1075,7 @@ Kode harus menggunakan:
 
 ---
 
-# 24. Project Structure
+# 21. Project Structure
 
 ```text
 simple-booking/
@@ -1106,7 +1121,7 @@ simple-booking/
 
 ---
 
-# 25. Development Phases
+# 22. Development Phases
 
 ## Phase 1 — Project Setup
 
@@ -1186,7 +1201,7 @@ Untuk production, database SQLite diganti dengan PostgreSQL.
 
 ---
 
-# 26. Acceptance Criteria
+# 23. Acceptance Criteria
 
 ### AC-01
 
@@ -1246,7 +1261,7 @@ User dapat menggunakan manual booking apabila voice booking gagal.
 
 ---
 
-# 27. MVP Definition of Done
+# 24. MVP Definition of Done
 
 MVP dinyatakan selesai apabila seluruh flow berikut berhasil:
 
@@ -1290,7 +1305,7 @@ Selain itu:
 
 ---
 
-# 28. Future Roadmap
+# 25. Future Roadmap
 
 ## Version 2
 
@@ -1341,7 +1356,7 @@ Setiap organization dapat memiliki AI Agent sendiri untuk menangani booking.
 
 ---
 
-# 29. Product Vision
+# 26. Product Vision
 
 Simple Voice Booking menjadi platform booking berbasis AI yang memungkinkan customer melakukan booking melalui percakapan natural language.
 
