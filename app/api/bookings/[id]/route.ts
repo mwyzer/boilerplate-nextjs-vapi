@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { BookingStatus } from "@/app/generated/prisma/client";
 import {
   cancelBooking,
   getBookingByBookingId,
@@ -45,7 +44,7 @@ export async function PATCH(
     const body = await request.json().catch(() => null);
     const status = (body as { status?: string } | null)?.status;
 
-    if (status !== BookingStatus.CANCELLED) {
+    if (status !== "CANCELLED") {
       throw new ValidationError("Status yang diizinkan hanya CANCELLED.", "INVALID_STATUS");
     }
 

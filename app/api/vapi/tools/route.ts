@@ -2,33 +2,32 @@ import { NextResponse } from "next/server";
 import type {
   ClientMessageToolCalls,
   FunctionToolWithToolCall,
+  ToolCall,
+  ToolCallFunction,
 } from "@vapi-ai/web/dist/api";
-import {
-  cancelBooking,
-  checkAvailability,
-  createBooking,
-  getBookingByBookingId,
-} from "@/lib/booking";
+import { bookingService } from "@/lib/booking";
 
 type ToolCallArgs = Record<string, unknown>;
 
 function parseToolCallArgs(
   toolWithToolCall: FunctionToolWithToolCall,
-): { name: string; args: ToolCallArgs } {
-  const name =
-    toolWithToolCall.function?.name ?? toolWithToolCall.toolCall.function.name;
-  const rawArgs = toolWithToolCall.toolCall.function.arguments;
+): { id: string; name: string; args: ToolCallArgs } {
+  const tc = (toolWithToolCall.toolCall ??
+    toolWithToolCall) as Partial<ToolCall>;
+  const fn = (tc.function ??
+    toolWithToolCall.function) as Partial<ToolCallFunction> | undefined;
+  const rawArgs = fn?.arguments;
   const args: ToolCallArgs = rawArgs
     ? (JSON.parse(rawArgs) as ToolCallArgs)
     : {};
-  return { name, args };
+  return { id: tc.id ?? "", name: fn?.name ?? "", args };
 }
 
 async function dispatchTool(name: string, args: ToolCallArgs): Promise<string> {
   switch (name) {
     case "check_availability":
       return JSON.stringify(
-        await checkAvailability({
+        await bookingService.checkAvailability({
           date: String(args.date ?? ""),
           startTime: String(args.startTime ?? ""),
           duration: Number(args.duration),
@@ -36,7 +35,7 @@ async function dispatchTool(name: string, args: ToolCallArgs): Promise<string> {
       );
     case "create_booking":
       return JSON.stringify(
-        await createBooking({
+        await bookingService.createBooking({
           name: String(args.name ?? "").trim(),
           date: String(args.date ?? ""),
           startTime: String(args.startTime ?? ""),
@@ -47,11 +46,11 @@ async function dispatchTool(name: string, args: ToolCallArgs): Promise<string> {
       const bookingId = String(args.bookingId ?? "").trim();
       const existing = /^\d+$/.test(bookingId)
         ? { id: Number(bookingId) }
-        : await getBookingByBookingId(bookingId);
+        : await bookingService.getBookingByBookingId(bookingId);
       if (!existing) {
         throw new Error("Booking tidak ditemukan.");
       }
-      const booking = await cancelBooking(existing.id);
+      const booking = await bookingService.cancelBooking(existing.id);
       return JSON.stringify({ booking });
     }
     default:
@@ -74,18 +73,19 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     const results: { toolCallId: string; name: string; result?: string; error?: string }[] = [];
     for (const toolWithToolCall of toolCalls) {
-      const functionCall = toolWithToolCall as FunctionToolWithToolCall;
-      const { name, args } = parseToolCallArgs(functionCall);
       try {
+        const { id, name, args } = parseToolCallArgs(
+          toolWithToolCall as FunctionToolWithToolCall,
+        );
         const result = await dispatchTool(name, args);
-        results.push({
-          toolCallId: functionCall.toolCall.id,
-          name,
-          result,
-        });
+        results.push({ toolCallId: id, name, result });
       } catch (error) {
+        const id = (toolWithToolCall as { id?: string }).id ?? "";
+        const name =
+          (toolWithToolCall as { function?: { name?: string } }).function?.name ??
+          "";
         results.push({
-          toolCallId: functionCall.toolCall.id,
+          toolCallId: id,
           name,
           error: error instanceof Error ? error.message : "Terjadi kesalahan.",
         });

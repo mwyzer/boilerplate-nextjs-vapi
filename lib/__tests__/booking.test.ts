@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/prisma", () => ({ prisma: {} }));
+vi.mock("@/lib/db", () => ({ db: {} }));
 
 import {
   MAX_DURATION_HOURS,
