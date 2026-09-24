@@ -105,8 +105,8 @@ export function buildAssistant(): CreateAssistantDTO {
     name: "Simple Booking Assistant",
     transcriber: { provider: "vapi" },
     model: {
-      provider: "vapi",
-      model: "gpt-4o-mini",
+      provider: "openai",
+      model: "gpt-4.1-mini",
       messages: [{ role: "system", content: SYSTEM_PROMPT }],
       tools: bookingTools,
     },
